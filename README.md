@@ -1,7 +1,7 @@
 # EG-BIM MCP
 
-EG-BIM(IntelliCAD)을 **Model Context Protocol(MCP)** 로 연결하는 서버입니다.  
-Claude 등 AI 어시스턴트가 실행 중인 IntelliCAD 인스턴스를 직접 제어할 수 있습니다.
+EG-BIM을 **Model Context Protocol(MCP)** 로 연결하는 서버입니다.  
+Claude 등 AI 어시스턴트가 실행 중인 EG-BIM을 직접 제어할 수 있습니다.
 
 ## 요구사항
 
@@ -10,9 +10,9 @@ Claude 등 AI 어시스턴트가 실행 중인 IntelliCAD 인스턴스를 직접
 | OS | Windows 10/11 |
 | Python | 3.12 이상 |
 | [uv](https://docs.astral.sh/uv/) | 최신 버전 |
-| EG-BIM (IntelliCAD) | 9.x (x64) |
+| EG-BIM |
 
-> IntelliCAD가 실행 중이어야 MCP 서버가 COM 자동화로 연결됩니다.
+> EG-BIM가 실행 중이어야 MCP 서버가 COM 자동화로 연결됩니다.
 
 ---
 
@@ -87,7 +87,7 @@ EG-BIM에 연결 확인해줘
 | 도구 | 설명 |
 |------|------|
 | `ping` | 연결 확인, 현재 도면명 반환 |
-| `get_icad_info` | IntelliCAD 버전·도면 정보 |
+| `get_icad_info` | EG-BIM 버전·도면 정보 |
 | `get_drawing_info` | 도면 이름, 경로, 저장 여부, 한계 |
 
 ### 도면 관리
@@ -203,8 +203,8 @@ EG-BIM에 연결 확인해줘
 ## 주의사항
 
 - **Windows 전용** — COM 자동화(`pywin32`)를 사용합니다.
-- EG-BIM(IntelliCAD)이 **실행 중**이어야 서버가 연결됩니다.
-- `vlax-*` 함수는 지원하지 않습니다 (IntelliCAD 9.x 기준 기본 AutoLISP만 사용).
+- EG-BIM이 **실행 중**이어야 서버가 연결됩니다.
+- `vlax-*` 함수는 지원하지 않습니다 (IntelliCAD 9.x엔진 문제).
 - 대규모 작업 전 `count_entities`로 엔티티 수를 확인하세요.
 
 ---
