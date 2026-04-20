@@ -1,0 +1,12 @@
+[project]
+name = "egbim-mcp"
+version = "0.1.0"
+description = "EG-BIM (IntelliCAD) integration through the Model Context Protocol"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=1.3.0",
+    "pywin32>=306",
+]
+
+[project.scripts]
+egbim-mcp = "egbim_mcp.egbim_mcp_server:main"

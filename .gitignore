@@ -1,0 +1,34 @@
+# 임시 추출 데이터
+*.csv
+*.txt
+
+# CAD 바이너리
+*.dwg
+*.gbk
+*.bak
+*.dwl
+*.dwl2
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+
+# Excel 임시
+~$*.xlsx
+
+# 진단/덤프 로그
+makeloop/dbg*.txt
+makeloop/ps*.txt
+makeloop/prv_*.txt
+makeloop/section_*.txt
+makeloop/vp_*.txt
+makeloop/diag_*.txt
+
+# uv / venv
+.venv/
+.uv/
+
+# OS
+Thumbs.db
+desktop.ini
