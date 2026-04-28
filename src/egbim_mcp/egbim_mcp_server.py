@@ -616,6 +616,137 @@ class IcadConnection:
                 })
         return results
 
+    def draw_cross_section(self,
+                           layer: str,
+                           left_x: float, left_y: float,
+                           right_x: float, right_y: float,
+                           origin_x: float, origin_y: float,
+                           v_scale: float = 1.0,
+                           label_height: float = 0.4,
+                           label_offset: float = 0.3,
+                           output_layer: str = "0",
+                           bbox_x1: float = 0, bbox_y1: float = 0,
+                           bbox_x2: float = 0, bbox_y2: float = 0,
+                           bbox_buffer: float = 20.0) -> dict:
+        """지정 레이어에서 표고 텍스트를 LISP으로 추출하여 횡단면 폴리선+라벨 작도.
+        ssget '_X' + 수동 bbox 필터 사용으로 대용량 도면에서도 빠름."""
+        import time
+
+        # bbox 자동 계산 (미지정 시 endpoints ± buffer)
+        if bbox_x1 == 0 and bbox_y1 == 0 and bbox_x2 == 0 and bbox_y2 == 0:
+            bbox_x1 = min(left_x, right_x) - bbox_buffer
+            bbox_y1 = min(left_y, right_y) - bbox_buffer
+            bbox_x2 = max(left_x, right_x) + bbox_buffer
+            bbox_y2 = max(left_y, right_y) + bbox_buffer
+
+        tmp = "C:/temp/_cs_extract.txt"
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+        lisp = (
+            f'(progn'
+            f' (setq _ss (ssget "_X" (list (cons 8 "{layer}"))))'
+            f' (setq _fp (open "{tmp}" "w"))'
+            f' (setq _x1 {bbox_x1:.4f} _y1 {bbox_y1:.4f} _x2 {bbox_x2:.4f} _y2 {bbox_y2:.4f})'
+            f' (if _ss (progn (setq _i 0 _n (sslength _ss))'
+            f'   (while (< _i _n)'
+            f'     (setq _e (entget (ssname _ss _i)) _et (cdr (assoc 0 _e)) _pt (cdr (assoc 10 _e)))'
+            f'     (if (and _pt (>= (car _pt) _x1) (<= (car _pt) _x2)'
+            f'              (>= (cadr _pt) _y1) (<= (cadr _pt) _y2))'
+            f'       (cond'
+            f'         ((= _et "LWPOLYLINE")'
+            f'          (write-line "P" _fp)'
+            f'          (foreach _a _e (if (= (car _a) 10)'
+            f'            (write-line (strcat "V " (rtos (cadr _a) 2 4) " " (rtos (caddr _a) 2 4)) _fp))))'
+            f'         ((or (= _et "TEXT") (= _et "MTEXT"))'
+            f'          (write-line (strcat "T " (rtos (car _pt) 2 4) " " (rtos (cadr _pt) 2 4) " " (cdr (assoc 1 _e))) _fp))))'
+            f'     (setq _i (1+ _i)))))'
+            f' (write-line "END" _fp)'
+            f' (close _fp))'
+        )
+
+        self.doc.SendCommand(lisp + "\n")
+
+        for _ in range(300):
+            if os.path.exists(tmp):
+                break
+            time.sleep(0.1)
+        if not os.path.exists(tmp):
+            raise RuntimeError("LISP 추출 시간 초과 (30초) — 레이어명/IntelliCAD 상태 확인")
+
+        with open(tmp, "r", encoding="utf-8", errors="replace") as f:
+            lines = [l.strip() for l in f if l.strip()]
+        os.remove(tmp)
+
+        # 텍스트 파싱 + 표고 필터
+        elev_texts = []
+        for line in lines:
+            if not line.startswith("T "):
+                continue
+            parts = line[2:].split(None, 2)
+            if len(parts) < 3:
+                continue
+            txt = parts[2].strip()
+            # X=/Y= 좌표 주석 라벨 제외
+            if txt.upper().startswith("X=") or txt.upper().startswith("Y="):
+                continue
+            val_str = txt.replace("EL=", "").replace("EL =", "").strip()
+            try:
+                elev_texts.append({"x": float(parts[0]), "y": float(parts[1]), "elev": float(val_str)})
+            except ValueError:
+                pass
+
+        if not elev_texts:
+            raise RuntimeError("유효한 표고 텍스트 없음 — 레이어명/bbox 확인 필요")
+
+        # 측점거리 계산 (좌안 기준 벡터 투영)
+        dx = right_x - left_x
+        dy = right_y - left_y
+        L = math.sqrt(dx * dx + dy * dy)
+        if L < 0.001:
+            raise RuntimeError("좌안/우안 좌표가 같습니다")
+
+        section_pts = sorted(
+            [{"station": ((t["x"] - left_x) * dx + (t["y"] - left_y) * dy) / L,
+              "elev": t["elev"]} for t in elev_texts],
+            key=lambda p: p["station"]
+        )
+
+        # 레이어 생성 (없는 경우)
+        out_layer = output_layer if output_layer else "0"
+        if out_layer != "0":
+            try:
+                self.doc.Layers.Item(out_layer)
+            except Exception:
+                self.doc.Layers.Add(out_layer)
+
+        # 폴리선 작도
+        poly_2d = [[origin_x + p["station"], origin_y + p["elev"] * v_scale] for p in section_pts]
+        self.create_polyline(poly_2d, layer=out_layer if out_layer != "0" else None)
+
+        # 표고 라벨 작도
+        for p in section_pts:
+            x = origin_x + p["station"]
+            y = origin_y + p["elev"] * v_scale + label_offset
+            self.create_text(f"{p['elev']:.2f}", [x, y], height=label_height,
+                             layer=out_layer if out_layer != "0" else None)
+
+        xs = [pt[0] for pt in poly_2d]
+        ys = [pt[1] for pt in poly_2d]
+
+        return {
+            "drawn": len(section_pts),
+            "total_length": round(L, 3),
+            "elev_min": round(min(p["elev"] for p in section_pts), 3),
+            "elev_max": round(max(p["elev"] for p in section_pts), 3),
+            "zoom_bbox": {
+                "x1": round(min(xs) - label_height * 2, 3),
+                "y1": round(min(ys) - label_height * 2, 3),
+                "x2": round(max(xs) + label_height * 2, 3),
+                "y2": round(max(ys) + label_height * 3, 3),
+            },
+        }
+
     # -- command / AutoLISP ----------------------------------------------------
 
     def send_command(self, command: str) -> dict:
@@ -1166,6 +1297,45 @@ def find_text(ctx: Context, keyword: str, zoom: bool = True, margin: float = 200
             x, y = first["x"], first["y"]
             get_icad().zoom_window([x - margin, y - margin], [x + margin, y + margin])
         return _ok({"found": len(results), "results": results})
+    except Exception as e:
+        return _err(e)
+
+
+# -- cross-section -------------------------------------------------------------
+
+@mcp.tool()
+def draw_cross_section(ctx: Context,
+                       layer: str,
+                       left_x: float, left_y: float,
+                       right_x: float, right_y: float,
+                       origin_x: float, origin_y: float,
+                       v_scale: float = 1.0,
+                       label_height: float = 0.4,
+                       label_offset: float = 0.3,
+                       output_layer: str = "0",
+                       bbox_x1: float = 0, bbox_y1: float = 0,
+                       bbox_x2: float = 0, bbox_y2: float = 0,
+                       bbox_buffer: float = 20.0) -> str:
+    """횡단면 자동 작도. 지정 레이어에서 폴리선+표고 텍스트를 LISP으로 추출 후 횡단면 폴리선+라벨 생성.
+    left_x/y: 좌안 CAD 좌표. right_x/y: 우안 CAD 좌표 (CAD좌표 = 토목좌표 X/Y 반전).
+    origin_x/y: 횡단면 기준점 (예: 측선 우측 오프셋). v_scale: 수직 과장 (1.0=무과장, 10.0=10배).
+    bbox_x1~y2: 검색 영역 (모두 0이면 endpoints±bbox_buffer 자동 계산).
+    반환값의 zoom_bbox를 zoom_window 툴에 전달하면 자동 줌인 가능."""
+    try:
+        result = get_icad().draw_cross_section(
+            layer=layer,
+            left_x=left_x, left_y=left_y,
+            right_x=right_x, right_y=right_y,
+            origin_x=origin_x, origin_y=origin_y,
+            v_scale=v_scale,
+            label_height=label_height,
+            label_offset=label_offset,
+            output_layer=output_layer,
+            bbox_x1=bbox_x1, bbox_y1=bbox_y1,
+            bbox_x2=bbox_x2, bbox_y2=bbox_y2,
+            bbox_buffer=bbox_buffer,
+        )
+        return _ok(result)
     except Exception as e:
         return _err(e)
 
