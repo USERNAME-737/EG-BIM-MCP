@@ -751,9 +751,11 @@ class IcadConnection:
 
     def send_command(self, command: str) -> dict:
         """Send a raw command string to IntelliCAD command line.
-        Include \\n at end if needed. AutoLISP expressions OK."""
-        self.doc.SendCommand(command + "\n")
-        return {"sent": command}
+        AutoLISP expressions OK. Trailing blanks are stripped so IntelliCAD
+        does not treat an extra Enter as a repeat of the previous command."""
+        safe_command = command.rstrip()
+        self.doc.SendCommand(safe_command + "\n")
+        return {"sent": safe_command}
 
     # -- capture / view --------------------------------------------------------
 
