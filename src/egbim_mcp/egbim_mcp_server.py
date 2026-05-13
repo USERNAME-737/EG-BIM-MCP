@@ -760,7 +760,7 @@ class IcadConnection:
     def _cancel_command_line(self) -> bool:
         """Cancel any command prompt state left open by IntelliCAD commands."""
         try:
-            self.doc.SendCommand("\x03\x03")
+            self.doc.SendCommand(chr(27) + chr(27))
             return True
         except Exception:
             return False
