@@ -757,6 +757,14 @@ class IcadConnection:
         self.doc.SendCommand(safe_command + "\n")
         return {"sent": safe_command}
 
+    def _cancel_command_line(self) -> bool:
+        """Cancel any command prompt state left open by IntelliCAD commands."""
+        try:
+            self.doc.SendCommand("\x03\x03")
+            return True
+        except Exception:
+            return False
+
     # -- capture / view --------------------------------------------------------
 
     def capture_view(self, output_path: str = "") -> dict:
@@ -805,16 +813,33 @@ Write-Host 'OK'
     # -- zoom / view -----------------------------------------------------------
 
     def zoom_extents(self) -> dict:
+        before = self._cancel_command_line()
         self.app.ZoomExtents()
-        return {"zoom": "extents"}
+        after = self._cancel_command_line()
+        return {"zoom": "extents", "command_cancel_before": before, "command_cancel_after": after}
 
     def zoom_window(self, lower_left: List[float], upper_right: List[float]) -> dict:
-        ll = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8,
-                                     [lower_left[0], lower_left[1], 0.0])
-        ur = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8,
-                                     [upper_right[0], upper_right[1], 0.0])
-        self.app.ZoomWindow(ll, ur)
-        return {"zoom": "window"}
+        before = self._cancel_command_line()
+        method = "com"
+        try:
+            ll = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8,
+                                         [lower_left[0], lower_left[1], 0.0])
+            ur = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8,
+                                         [upper_right[0], upper_right[1], 0.0])
+            self.app.ZoomWindow(ll, ur)
+        except Exception:
+            method = "command"
+            self.doc.SendCommand(
+                f"_.ZOOM _W {lower_left[0]},{lower_left[1]} {upper_right[0]},{upper_right[1]}\n"
+            )
+        finally:
+            after = self._cancel_command_line()
+        return {
+            "zoom": "window",
+            "method": method,
+            "command_cancel_before": before,
+            "command_cancel_after": after,
+        }
 
     def regen(self) -> dict:
         self.doc.Regen(0)  # acActiveViewport = 0
