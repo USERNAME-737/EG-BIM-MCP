@@ -39,6 +39,25 @@ Python 의존성은 `pyproject.toml`에 정의되어 있습니다.
 - `mcp[cli]`
 - `pywin32`
 
+## MCP를 처음 설치하는 경우
+
+MCP(Model Context Protocol)는 AI assistant가 외부 프로그램의 기능을 표준화된 도구처럼 사용할 수 있게 해 주는 연결 방식입니다.
+이 저장소는 EG-BIM/IntelliCAD를 MCP 서버로 노출하고, Claude Code, Claude Desktop, Gemini CLI 같은 MCP client가 그 도구를 호출하는 구조입니다.
+
+처음 설치한다면 아래 순서대로 진행하는 것을 권장합니다.
+
+1. EG-BIM 또는 IntelliCAD가 Windows에 설치되어 있는지 확인합니다.
+2. Python 3.12 이상을 설치합니다.
+3. Git을 설치합니다.
+4. `uv`를 설치합니다.
+5. 이 저장소를 복제합니다.
+6. `uv sync`로 Python 의존성을 설치합니다.
+7. EG-BIM을 실행하고 도면을 하나 엽니다.
+8. 사용할 MCP client에 이 서버를 등록합니다.
+9. `ping`으로 연결 상태를 확인합니다.
+
+설치가 처음이라면 “서버 실행 확인”까지 먼저 성공시킨 뒤, Claude/Gemini/ChatGPT 같은 client 연결을 진행하는 편이 문제를 찾기 쉽습니다.
+
 ## 설치
 
 ### 1. 저장소 복제
@@ -66,7 +85,19 @@ uv run src/egbim_mcp/egbim_mcp_server.py
 uv run egbim-mcp
 ```
 
-## Claude Code 등록 예시
+## MCP client별 연결 방식
+
+MCP는 여러 AI 도구에서 사용할 수 있지만, client마다 지원 방식이 다릅니다.
+이 서버는 현재 로컬 Windows의 EG-BIM을 COM으로 제어하는 `stdio` 방식 MCP 서버입니다.
+
+| Client | 현재 서버와의 궁합 | 설명 |
+| --- | --- | --- |
+| Claude Code | 권장 | 로컬 `stdio` MCP 서버 등록이 간단합니다. 개발/디버깅 작업에 가장 편합니다. |
+| Claude Desktop | 권장 | 설정 파일에 MCP 서버를 등록해 데스크톱 앱에서 사용할 수 있습니다. |
+| Gemini CLI | 가능 | `settings.json` 또는 `gemini mcp add`로 `stdio` MCP 서버를 등록할 수 있습니다. |
+| ChatGPT | 별도 작업 필요 | ChatGPT의 custom MCP는 주로 원격 MCP connector/API 방식입니다. 현재 로컬 `stdio` 서버를 그대로 붙이기보다는 HTTP/SSE 원격 서버 형태로 감싸는 작업이 필요합니다. |
+
+### Claude Code 등록 예시
 
 ```bash
 claude mcp add egbim -- uv --directory "C:\path\to\EG-BIM-MCP" run src/egbim_mcp/egbim_mcp_server.py
@@ -92,7 +123,7 @@ claude mcp add egbim -- uv --directory "C:\path\to\EG-BIM-MCP" run src/egbim_mcp
 }
 ```
 
-## Claude Desktop 등록 예시
+### Claude Desktop 등록 예시
 
 `%APPDATA%\Claude\claude_desktop_config.json`에 다음 항목을 추가합니다.
 
@@ -111,6 +142,46 @@ claude mcp add egbim -- uv --directory "C:\path\to\EG-BIM-MCP" run src/egbim_mcp
   }
 }
 ```
+
+### Gemini CLI 등록 예시
+
+Gemini CLI는 `settings.json`의 `mcpServers` 항목으로 MCP 서버를 등록할 수 있습니다.
+사용자 설정은 일반적으로 `~/.gemini/settings.json`, 프로젝트 설정은 `.gemini/settings.json`에 둡니다.
+
+```json
+{
+  "mcpServers": {
+    "egbim": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "C:\\path\\to\\EG-BIM-MCP",
+        "run",
+        "src/egbim_mcp/egbim_mcp_server.py"
+      ],
+      "timeout": 30000,
+      "trust": false
+    }
+  }
+}
+```
+
+등록 후 Gemini CLI에서 `/mcp list`로 연결 상태를 확인합니다.
+로컬 `stdio` 서버는 현재 폴더가 신뢰된 상태여야 정상적으로 연결 상태가 표시될 수 있습니다.
+
+### ChatGPT에서 사용하는 경우
+
+ChatGPT와 OpenAI API도 MCP를 지원하지만, 일반적으로 공개 URL을 가진 원격 MCP 서버를 연결하는 방식입니다.
+이 저장소의 기본 서버는 로컬 Windows에서 EG-BIM을 직접 조작하는 `stdio` 서버이므로 ChatGPT에 바로 붙이는 구조가 아닙니다.
+
+ChatGPT에서 사용하려면 보통 아래 작업이 추가로 필요합니다.
+
+1. 이 서버를 Streamable HTTP 또는 SSE 방식의 원격 MCP 서버로 감쌉니다.
+2. 인증, 접근 제어, 네트워크 보안을 설정합니다.
+3. ChatGPT의 Connectors 또는 OpenAI API의 remote MCP tool 설정에 서버 URL을 등록합니다.
+4. CAD가 실행되는 Windows PC와 원격 MCP endpoint 사이의 보안 경계를 명확히 정합니다.
+
+따라서 처음 사용하는 경우에는 Claude Code, Claude Desktop, Gemini CLI처럼 로컬 `stdio` MCP를 직접 지원하는 client로 먼저 연결을 확인하는 것을 권장합니다.
 
 ## 연결 확인
 
@@ -187,6 +258,12 @@ EG-BIM 연결 상태 확인해줘.
 - 프로젝트별 임시 CSV/TXT/PNG 제외
 - 민감한 도면명, 좌표, 발주처 정보 포함 여부 확인
 - 큰 도면 작업은 `count_entities`로 규모 확인 후 진행
+
+## 참고 문서
+
+- [OpenAI: Building MCP servers for ChatGPT and API integrations](https://platform.openai.com/docs/mcp/)
+- [OpenAI: Connectors and MCP servers](https://platform.openai.com/docs/guides/tools-remote-mcp)
+- [Gemini CLI: MCP servers](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md)
 
 ## License
 
