@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Patch script: Insert new features into egbim_mcp_server.py"""
+import os
 import re
 
-SRC = r"D:\#737\egbim_mcp\src\egbim_mcp\egbim_mcp_server.py"
+ROOT = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.join(ROOT, "src", "egbim_mcp", "egbim_mcp_server.py")
 
 with open(SRC, "r", encoding="utf-8") as f:
     code = f.read()

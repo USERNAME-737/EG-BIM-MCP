@@ -2,12 +2,28 @@
 *.csv
 *.txt
 
+# Local secrets / environment
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+
 # CAD 바이너리
 *.dwg
 *.gbk
 *.bak
 *.dwl
 *.dwl2
+
+# Project data / captures
+*.xlsx
+*.xlsm
+*.xls
+*.png
+*.jpg
+*.jpeg
 
 # Python 캐시
 __pycache__/
