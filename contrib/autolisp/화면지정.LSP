@@ -1,0 +1,82 @@
+(vl-load-com)
+
+(defun screen_size ( / a_sc b_vt c_vs ex ey)
+  (setq a_sc (getvar "SCREENSIZE"))
+  (setq b_vt (getvar "VIEWCTR"))
+  (setq c_vs (getvar "VIEWSIZE"))
+  (setq ey (/ c_vs 2.0))
+  (setq ex (/ (* (/ (car a_sc) (cadr a_sc)) c_vs) 2.0))
+  (list
+    (list (- (car b_vt) ex) (- (cadr b_vt) ey))
+    (list (+ (car b_vt) ex) (+ (cadr b_vt) ey))
+  )
+)
+
+(defun save-vars ()
+  (setq OldVarList  (list "OSMODE" "CMDECHO" "CMDDIA" "FILEDIA"))
+  (setq OldVarValue (mapcar 'getvar OldVarList))
+  (mapcar 'setvar OldVarList '(0 0 0 0))
+)
+
+(defun restore-vars ()
+  (mapcar 'setvar OldVarList OldVarValue)
+)
+
+;; ---- 저장 명령 VV1~VV9 ----
+(defun save_view (n / vp pt1 pt2 key)
+  (save-vars)
+  (setq vp (screen_size))
+  (setq pt1 (car vp))
+  (setq pt2 (cadr vp))
+  (setq key (strcat "HKEY_CURRENT_USER\\Software\\ViewPortCustom\\View" (itoa n)))
+
+  (vl-registry-write key "pt1" (strcat (rtos (car pt1)) "," (rtos (cadr pt1))))
+  (vl-registry-write key "pt2" (strcat (rtos (car pt2)) "," (rtos (cadr pt2))))
+
+  (prompt (strcat "\n◎ VIEWPORT 저장 완료 → VV" (itoa n)))
+  (restore-vars)
+  (princ)
+)
+
+;; ---- 불러오기 명령 V1~V9 ----
+(defun load_view (n / key p1 p2)
+  (save-vars)
+  (setq key (strcat "HKEY_CURRENT_USER\\Software\\ViewPortCustom\\View" (itoa n)))
+  (setq p1 (vl-registry-read key "pt1"))
+  (setq p2 (vl-registry-read key "pt2"))
+
+  (if (and p1 p2)
+    (progn
+      (command "ZOOM" p1 p2)
+      (prompt (strcat "\n◎ 저장된 VIEWPORT 로 이동 → V" (itoa n)))
+    )
+    (prompt (strcat "\n저장된 VIEW" (itoa n) " 정보가 없습니다. VV" (itoa n) " 로 저장하세요."))
+  )
+  (restore-vars)
+  (princ)
+)
+
+;; 개별 호출 함수 정의 (저장)
+(defun c:VV1 () (save_view 1))
+(defun c:VV2 () (save_view 2))
+(defun c:VV3 () (save_view 3))
+(defun c:VV4 () (save_view 4))
+(defun c:VV5 () (save_view 5))
+(defun c:VV6 () (save_view 6))
+(defun c:VV7 () (save_view 7))
+(defun c:VV8 () (save_view 8))
+(defun c:VV9 () (save_view 9))
+
+;; 개별 호출 함수 정의 (불러오기)
+(defun c:V1 () (load_view 1))
+(defun c:V2 () (load_view 2))
+(defun c:V3 () (load_view 3))
+(defun c:V4 () (load_view 4))
+(defun c:V5 () (load_view 5))
+(defun c:V6 () (load_view 6))
+(defun c:V7 () (load_view 7))
+(defun c:V8 () (load_view 8))
+(defun c:V9 () (load_view 9))
+
+(princ "\n◎ VIEWPORT 저장/불러오기 준비 완료 (VV1~VV9 저장 / V1~V9 불러오기)")
+(princ)

@@ -25,6 +25,13 @@ AI assistant가 도면을 조회하고, 레이어와 객체를 분석하고, 간
 | AutoLISP/명령 실행 | IntelliCAD 명령줄에 직접 명령 또는 AutoLISP 표현식을 전달합니다. | `send_command`, `undo`, `redo` |
 | 횡단면 보조 작성 | 도면 안의 횡단 기준선과 표고 문자 정보를 이용해 횡단면 작성 흐름을 보조합니다. | `draw_cross_section` |
 
+## AutoLISP 보조 유틸리티
+
+`contrib/autolisp` 폴더에는 EG-BIM/IntelliCAD에서 직접 로드해서 사용할 수 있는 보조 LISP가 포함되어 있습니다.
+화면 영역 저장/복원, AutoCAD 도면 호환성 정리, 이미지 다중 삽입 같은 작업을 보조합니다.
+
+자세한 내용은 [contrib/autolisp/README.md](contrib/autolisp/README.md)를 확인하세요.
+
 ## 요구 사항
 
 | 항목 | 요구 사항 |
