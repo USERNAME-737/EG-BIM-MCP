@@ -187,6 +187,19 @@ class IcadConnection:
 
     # -- entity query ----------------------------------------------------------
 
+    @staticmethod
+    def _get_color(ent) -> Optional[int]:
+        """ColorIndex를 정수로 반환. ByLayer=256, ByBlock=0."""
+        try:
+            return int(ent.ColorIndex)
+        except Exception:
+            pass
+        try:
+            return int(ent.Color.ColorIndex)
+        except Exception:
+            pass
+        return None
+
     def get_entities(self, layer: Optional[str] = None,
                      entity_type: Optional[str] = None,
                      limit: int = 100,
@@ -203,17 +216,29 @@ class IcadConnection:
             ent = self.mspace.Item(i)
             if layer and ent.Layer != layer:
                 continue
-            if entity_type and ent.EntityName != entity_type:
+            if entity_type and ent.EntityName.lower() != entity_type.lower():
                 continue
-            # Bounding box
+            # Bounding box — GetBoundingBox() returns COM SAFEARRAY; index access works, list() does not
             ent_bbox_min = None
             ent_bbox_max = None
             try:
-                ent_bbox_min, ent_bbox_max = ent.GetBoundingBox()
-                ent_bbox_min = list(ent_bbox_min)
-                ent_bbox_max = list(ent_bbox_max)
+                _min, _max = ent.GetBoundingBox()
+                ent_bbox_min = [_min[0], _min[1]]
+                ent_bbox_max = [_max[0], _max[1]]
             except Exception:
                 pass
+            # Fallback for entities where GetBoundingBox fails (e.g. TEXT): use InsertionPoint as a point
+            if ent_bbox_min is None and hasattr(ent, 'InsertionPoint'):
+                try:
+                    ip = ent.InsertionPoint
+                    try:
+                        x, y = ip[0], ip[1]
+                    except (TypeError, AttributeError):
+                        x, y = ip.X, ip.Y
+                    ent_bbox_min = [x, y]
+                    ent_bbox_max = [x, y]
+                except Exception:
+                    pass
             # bbox filter: skip if entity bbox doesn't overlap query bbox
             if use_bbox:
                 if ent_bbox_min is None:
@@ -226,7 +251,7 @@ class IcadConnection:
                 "handle": ent.Handle,
                 "type": ent.EntityName,
                 "layer": ent.Layer,
-                "color": ent.Color,
+                "color": self._get_color(ent),
                 "visible": ent.Visible,
             }
             if ent_bbox_min:
@@ -247,7 +272,7 @@ class IcadConnection:
             ent = self.mspace.Item(i)
             if layer and ent.Layer != layer:
                 continue
-            if entity_type and ent.EntityName != entity_type:
+            if entity_type and ent.EntityName.lower() != entity_type.lower():
                 continue
             matched += 1
         return {"total": total, "matched": matched}
@@ -269,15 +294,15 @@ class IcadConnection:
             "handle": ent.Handle,
             "type": ent.EntityName,
             "layer": safe_get(ent, "Layer"),
-            "color": safe_get(ent, "ColorIndex", safe_get(ent, "Color")),
+            "color": self._get_color(ent),
             "linetype": safe_get(ent, "Linetype"),
             "visible": safe_get(ent, "Visible"),
         }
         # Bounding box
         try:
-            min_pt, max_pt = ent.GetBoundingBox()
-            info["bbox_min"] = list(min_pt)
-            info["bbox_max"] = list(max_pt)
+            _min, _max = ent.GetBoundingBox()
+            info["bbox_min"] = [_min[0], _min[1]]
+            info["bbox_max"] = [_max[0], _max[1]]
         except Exception:
             pass
         # Polyline-specific: coordinates
@@ -296,11 +321,23 @@ class IcadConnection:
                 info["vertex_count"] = len(pts)
             except Exception as e:
                 info["coordinates_error"] = str(e)
-        # Text-specific
+        # Text-specific — COM BSTR for Korean text may arrive as Latin-1 bytes; decode as cp949
         if hasattr(ent, "TextString"):
-            info["text"] = safe_get(ent, "TextString")
+            text = safe_get(ent, "TextString") or ""
+            try:
+                text = text.encode("latin-1").decode("cp949")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+            info["text"] = text
         if hasattr(ent, "InsertionPoint"):
-            info["insertion_point"] = safe_get(ent, "InsertionPoint")
+            try:
+                ip = ent.InsertionPoint
+                try:
+                    info["insertion_point"] = [ip[0], ip[1]]
+                except (TypeError, AttributeError):
+                    info["insertion_point"] = [ip.X, ip.Y]
+            except Exception:
+                pass
         # Circle/Arc-specific
         if hasattr(ent, "Radius"):
             info["radius"] = safe_get(ent, "Radius")
@@ -600,7 +637,7 @@ class IcadConnection:
             time.sleep(0.1)
         if not os.path.exists(tmp):
             raise RuntimeError(f"LISP 실행 후 결과 파일이 생성되지 않았습니다: {tmp}")
-        with open(tmp, "r", encoding="utf-8", errors="replace") as f:
+        with open(tmp, "r", encoding="cp949", errors="replace") as f:
             lines = [l.strip() for l in f.readlines() if l.strip()]
         os.remove(tmp)
         if lines == ["NOTFOUND"]:
@@ -674,7 +711,7 @@ class IcadConnection:
         if not os.path.exists(tmp):
             raise RuntimeError("LISP 추출 시간 초과 (30초) — 레이어명/IntelliCAD 상태 확인")
 
-        with open(tmp, "r", encoding="utf-8", errors="replace") as f:
+        with open(tmp, "r", encoding="cp949", errors="replace") as f:
             lines = [l.strip() for l in f if l.strip()]
         os.remove(tmp)
 
