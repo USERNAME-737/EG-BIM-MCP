@@ -75,7 +75,7 @@
 )
 
 (defun c:MINI (/ pt wid gap files f idx ent edata u11 s13
-               curr_w sf x_off n x y oldecho)
+               curr_w sf x_off y_off n x y oldecho dir scaled_h)
 
   (princ "\n== MINI: 다중 이미지 한줄 삽입 ==")
   (princ "\n대화상자를 실행합니다...")
@@ -106,16 +106,24 @@
                 (strcat "\n이미지 간격 <" (rtos (* wid 0.1) 2 1) ">: ")))
               (if (null gap) (setq gap (* wid 0.1)))
 
+              (initget "R L U D")
+              (setq dir (getkword "\n배치방향[R/L/U/D]<R>: "))
+              (if (null dir) (setq dir "R"))
+
               (setq oldecho (getvar "cmdecho"))
               (setvar "cmdecho" 0)
               (command "_.undo" "_begin")
-              (setq x_off 0.0  n 0  idx 0)
+              (setq x_off 0.0  y_off 0.0  n 0  idx 0)
 
               (repeat (length files)
                 (setq f (nth idx files))
                 (setq idx (1+ idx))
-                (setq x (+ (car pt) x_off))
-                (setq y (cadr pt))
+                (cond
+                  ((= dir "R") (setq x (+ (car pt) x_off)  y (cadr pt)))
+                  ((= dir "L") (setq x (- (car pt) x_off wid)  y (cadr pt)))
+                  ((= dir "U") (setq x (car pt)  y (+ (cadr pt) y_off)))
+                  ((= dir "D") (setq x (car pt)  y (- (cadr pt) y_off)))
+                )
 
                 (command "-imageattach" f (list x y 0.0) 1.0 0)
 
@@ -131,7 +139,13 @@
                       (progn
                         (setq sf (/ wid curr_w))
                         (command "_.scale" ent "" (list x y) sf)
-                        (setq x_off (+ x_off wid gap))
+                        (if (or (= dir "R") (= dir "L"))
+                          (setq x_off (+ x_off wid gap))
+                          (progn
+                            (setq scaled_h (* wid (/ (float (abs (cadr s13))) (float (abs (car s13))))))
+                            (setq y_off (+ y_off scaled_h gap))
+                          )
+                        )
                         (setq n (1+ n))
                         (princ (strcat "\r  " (itoa n) "/" (itoa (length files))
                                        " OK: " (MINI:fname f)))
@@ -141,7 +155,10 @@
                   )
                   (progn
                     (princ (strcat "\n  [WARN] " (MINI:fname f)))
-                    (setq x_off (+ x_off wid gap))
+                    (if (or (= dir "R") (= dir "L"))
+                      (setq x_off (+ x_off wid gap))
+                      (setq y_off (+ y_off wid gap))
+                    )
                     (setq n (1+ n))
                   )
                 )
