@@ -76,6 +76,40 @@ class IcadConnection:
         _ = self.doc.Name
         return {"status": "pong", "drawing": self.doc.Name}
 
+    def health_check(self) -> dict:
+        import time
+        result = {
+            "progid": ICAD_PROGID,
+            "connected": self.app is not None,
+        }
+        if self.app is None:
+            return result
+
+        try:
+            result["caption"] = self.app.Caption
+            result["version"] = getattr(self.app, "Version", "unknown")
+        except Exception as exc:
+            result["app_error"] = f"{type(exc).__name__}: {exc}"
+            return result
+
+        try:
+            result["documents_count"] = self.app.Documents.Count
+        except Exception as exc:
+            result["documents_error"] = f"{type(exc).__name__}: {exc}"
+
+        t0 = time.perf_counter()
+        try:
+            doc_name = self.doc.Name
+            result["active_document"] = doc_name
+            result["active_document_path"] = self.doc.FullName
+            result["ping_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+            result["responsive"] = True
+        except Exception as exc:
+            result["ping_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+            result["responsive"] = False
+            result["doc_error"] = f"{type(exc).__name__}: {exc}"
+        return result
+
     def get_info(self) -> dict:
         app = self.app
         return {
@@ -882,6 +916,44 @@ Write-Host 'OK'
         self.doc.Regen(0)  # acActiveViewport = 0
         return {"regen": True}
 
+    def prepare_lisp_file(
+        self,
+        code: str,
+        encoding: str = "cp949",
+        line_ending: str = "crlf",
+        filename: Optional[str] = None,
+    ) -> dict:
+        if line_ending == "crlf":
+            normalized = code.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
+        elif line_ending == "lf":
+            normalized = code.replace("\r\n", "\n").replace("\r", "\n")
+        else:
+            raise ValueError(f"line_ending must be 'crlf' or 'lf', got: {line_ending}")
+
+        try:
+            payload = normalized.encode(encoding)
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                f"{encoding}로 인코딩할 수 없는 문자가 포함되어 있습니다: {exc}"
+            ) from exc
+
+        if filename:
+            target = os.path.join(tempfile.gettempdir(), filename)
+            with open(target, "wb") as fp:
+                fp.write(payload)
+        else:
+            fd, target = tempfile.mkstemp(suffix=".lsp", prefix="egbim_", text=False)
+            with os.fdopen(fd, "wb") as fp:
+                fp.write(payload)
+
+        return {
+            "path": target,
+            "load_expr": f'(load "{target.replace(chr(92), "/")}")',
+            "encoding": encoding,
+            "line_ending": line_ending,
+            "bytes": len(payload),
+        }
+
 
 # --- Global connection --------------------------------------------------------
 
@@ -937,8 +1009,17 @@ def _ok(data) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False, default=str)
 
 
-def _err(exc: Exception) -> str:
-    return json.dumps({"error": str(exc)}, ensure_ascii=False)
+def _err(exc: Exception, hint: str = "") -> str:
+    payload = {
+        "ok": False,
+        "error": {
+            "type": type(exc).__name__,
+            "message": str(exc),
+        },
+    }
+    if hint:
+        payload["error"]["hint"] = hint
+    return json.dumps(payload, ensure_ascii=False)
 
 
 # -- connection / info ---------------------------------------------------------
@@ -959,6 +1040,62 @@ def get_icad_info(ctx: Context) -> str:
         return _ok(get_icad().get_info())
     except Exception as e:
         return _err(e)
+
+
+@mcp.tool()
+def health_check(ctx: Context) -> str:
+    """EG-BIM 상태 진단: ProgID, 활성 도면, 응답시간(ms), Documents 수.
+
+    ping이 느리거나 실패할 때 원인 진단용. 연결 실패해도 부분 정보 반환.
+    """
+    global _icad
+    try:
+        icad = get_icad()
+        return _ok(icad.health_check())
+    except Exception as e:
+        # 연결 자체가 실패해도 진단 정보를 최대한 반환
+        info = {
+            "progid": ICAD_PROGID,
+            "connected": False,
+            "connect_error": f"{type(e).__name__}: {e}",
+            "hint": "EG-BIM(IntelliCAD)이 실행 중인지, ProgID가 맞는지 확인하세요.",
+        }
+        return _ok(info)
+
+
+@mcp.tool()
+def prepare_lisp_file(
+    ctx: Context,
+    code: str,
+    encoding: str = "cp949",
+    line_ending: str = "crlf",
+    filename: str = "",
+) -> str:
+    """AutoLISP 코드를 임시 파일로 저장 (실행하지 않음).
+
+    EG-BIM/IntelliCAD가 안전하게 load 할 수 있도록 인코딩/개행을 정규화한
+    LISP 파일을 만들어 경로를 반환한다. 실행은 호출자가 send_command로
+    `(load "...")` 형태로 직접 수행한다 (의도 왜곡 방지).
+
+    Args:
+        code: AutoLISP 소스 코드.
+        encoding: 파일 인코딩 (기본 'cp949', 'utf-8' 등 가능).
+        line_ending: 'crlf' 또는 'lf' (기본 'crlf').
+        filename: 지정 시 해당 이름으로 TEMP에 저장. 빈 문자열이면 자동 생성.
+
+    Returns:
+        path, load_expr, encoding, line_ending, bytes 를 담은 JSON.
+    """
+    try:
+        result = get_icad().prepare_lisp_file(
+            code=code,
+            encoding=encoding,
+            line_ending=line_ending,
+            filename=filename if filename else None,
+        )
+        return _ok(result)
+    except Exception as e:
+        return _err(e, hint="encoding/line_ending 값을 확인하거나 코드의 비-CP949 문자를 점검하세요.")
 
 
 # -- drawing management --------------------------------------------------------
